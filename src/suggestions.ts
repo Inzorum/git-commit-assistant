@@ -23,3 +23,22 @@ export function categorizePath(filePath: string): FileCategory {
   }
   return 'other';
 }
+
+function inferScope(changes: StagedChange[]): string | undefined {
+  const scopes = changes.map(change => {
+    const segments = change.path.replaceAll('\\', '/').split('/');
+    while (segments.length > 1 && /^(src|lib|app|test|tests|__tests__|packages)$/.test(segments[0])) {
+      segments.shift();
+    }
+    return segments.length > 1 ? segments[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') : undefined;
+  });
+  return scopes.length && scopes[0] && scopes.every(scope => scope === scopes[0])
+    ? scopes[0] : undefined;
+}
+
+function mainCategory(changes: StagedChange[]): FileCategory {
+  for (const category of ['code', 'tests', 'docs', 'config', 'other'] as const) {
+    if (changes.some(change => change.category === category)) { return category; }
+  }
+  return 'other';
+}
