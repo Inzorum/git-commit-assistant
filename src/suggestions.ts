@@ -159,3 +159,79 @@ export function detectCommitFormat(subjects: string[]): ResolvedFormat {
   return total >= 3 && counts[ranked[0]] > counts[ranked[1]] && counts[ranked[0]] / total >= 0.4
     ? ranked[0] : 'conventional';
 }
+
+function makeMessage(type: CommitType, body: string, scope: string | undefined,
+  category: FileCategory, settings: AssistantSettings, format: ResolvedFormat): string {
+  const scoped = settings.scopeMode === 'auto' ? scope : undefined;
+  const categoryPrefix: Record<FileCategory, string> = {
+    code: 'src', docs: 'docs', tests: 'test', config: 'build', other: 'project'
+  };
+  let value: string;
+  if (format === 'conventional') {
+    value = `${type}${scoped ? `(${scoped})` : ''}: ${body}`;
+  } else if (format === 'scope' && settings.scopeMode === 'auto') {
+    value = `${scoped || categoryPrefix[category]}: ${body}`;
+  } else if (format === 'bracket' && settings.scopeMode === 'auto') {
+    value = `[${scoped || categoryPrefix[category]}] ${capitalize(body)}`;
+  } else {
+    value = capitalize(body);
+  }
+  return shorten(value, settings.maxSubjectLength);
+}
+
+export function buildSuggestions(changes: StagedChange[], settings: AssistantSettings,
+  recentSubjects: string[] = [], hints: DiffHints = {}): MessageSuggestion[] {
+  if (!changes.length) { return []; }
+  const category = mainCategory(changes);
+  const scope = inferScope(changes);
+  const format = settings.format === 'auto' ? detectCommitFormat(recentSubjects) : settings.format;
+
+  const primary: CommitType = category === 'docs' ? 'docs'
+    : category === 'tests' ? 'test'
+      : category === 'code' && action(changes) === 'add' ? 'feat'
+      : category === 'code' && hints.addedFunctions?.length && changes.filter(change => change.category === 'code').length === 1 ? 'feat'
+        : category === 'code' && hints.intent ? 'refactor'
+          : category === 'code' ? settings.defaultCodeType : 'chore';
+  const types: CommitType[] = category === 'code' && action(changes) === 'update'
+    ? [...new Set<CommitType>([primary, 'feat', 'fix', 'refactor', 'chore'])]
+    : [primary];
+
+  const suggestions = types.map(type => {
+    let body = subject(changes, category, scope, type, settings.language, hints);
+    if (type === 'feat' && hints.addedFunctions?.length) {
+      const fullMessage = makeMessage(type, body, scope, category,
+        { ...settings, maxSubjectLength: Number.MAX_SAFE_INTEGER }, format);
+      if (fullMessage.length > settings.maxSubjectLength) {
+        const names = joinNames(hints.addedFunctions, settings.language);
+        const compact = settings.language === 'ru'
+          ? `добавить функции ${names}` : `add ${names} functions`;
+        const compactMessage = makeMessage(type, compact, scope, category,
+          { ...settings, maxSubjectLength: Number.MAX_SAFE_INTEGER }, format);
+        body = compactMessage.length <= settings.maxSubjectLength ? compact
+          : subject(changes, category, scope, type, settings.language,
+            { ...hints, addedFunctions: undefined });
+      }
+    }
+    const message = makeMessage(type, body, scope, category, settings, format);
+    const description = type === 'refactor' && hints.intent === 'named-constant'
+      ? (settings.language === 'ru' ? 'Найдена именованная константа в staged diff' : 'Named constant detected in staged diff')
+      : type === 'refactor' && hints.intent === 'rename-variables'
+        ? (settings.language === 'ru' ? 'Найдено переименование переменной в staged diff' : 'Variable rename detected in staged diff')
+        : ({
+          ru: { feat: 'Если добавлено поведение', fix: 'Если исправлена ошибка',
+            refactor: 'Если поведение не изменилось', chore: 'Нейтральный вариант',
+            docs: 'Документация', test: 'Тесты' },
+          en: { feat: 'If behavior was added', fix: 'If a bug was fixed',
+            refactor: 'If behavior is unchanged', chore: 'Neutral option',
+            docs: 'Documentation', test: 'Tests' }
+        })[settings.language][type];
+    return {
+      label: message,
+      description,
+      message,
+      type
+    };
+  });
+  return suggestions.filter((suggestion, index) =>
+    suggestions.findIndex(candidate => candidate.message === suggestion.message) === index);
+}
