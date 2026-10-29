@@ -1,0 +1,165 @@
+{
+  "name": "git-commit-assistant",
+  "displayName": "Git Commit Assistant",
+  "description": "Локальные предложения сообщений коммита и статистика подготовленных изменений",
+  "version": "0.4.4",
+  "publisher": "inzorum",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "extensionKind": ["workspace"],
+  "categories": ["SCM Providers", "Other"],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:gitCommitAssistant.suggest",
+    "onCommand:gitCommitAssistant.showStatistics",
+    "onCommand:gitCommitAssistant.openSettings"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitCommitAssistant.suggest",
+        "title": "Git Commit Assistant: Предложить сообщение коммита",
+        "category": "Git Commit Assistant"
+      },
+      {
+        "command": "gitCommitAssistant.showStatistics",
+        "title": "Git Commit Assistant: Показать статистику",
+        "category": "Git Commit Assistant"
+      },
+      {
+        "command": "gitCommitAssistant.openSettings",
+        "title": "Git Commit Assistant: Открыть настройки",
+        "category": "Git Commit Assistant"
+      }
+    ],
+    "configuration": {
+      "title": "Git Commit Assistant",
+      "properties": {
+        "gitCommitAssistant.commitMode": {
+          "type": "string",
+          "title": "Как выполнять коммит",
+          "enum": ["terminalAuto", "terminalManual", "scm"],
+          "enumItemLabels": [
+            "Сразу выполнить в терминале",
+            "Подготовить команду в терминале",
+            "Вставить сообщение в Git VS Code"
+          ],
+          "enumDescriptions": [
+            "После подтверждения текста запустить git commit во встроенном терминале.",
+            "Вставить готовую команду в терминал; запуск по Enter.",
+            "Вставить текст в поле коммита панели Source Control VS Code."
+          ],
+          "default": "terminalAuto",
+          "description": "Как применить выбранное сообщение коммита."
+        },
+        "gitCommitAssistant.analyzeDiff": {
+          "type": "boolean",
+          "title": "Анализировать подготовленные изменения",
+          "default": true,
+          "description": "Анализировать текст только подготовленных изменений для более конкретного предложения; при выключении используются пути и типы файлов."
+        },
+        "gitCommitAssistant.format": {
+          "type": "string",
+          "title": "Формат сообщения",
+          "enum": ["auto", "conventional", "scope", "bracket", "plain"],
+          "enumItemLabels": [
+            "Как в истории репозитория",
+            "Conventional Commits — feat(scope): действие",
+            "Область перед действием — scope: действие",
+            "Область в скобках — [scope] Действие",
+            "Без префикса — Действие"
+          ],
+          "enumDescriptions": [
+            "Определить преобладающий формат по последним коммитам; при смешанной истории использовать Conventional Commits.",
+            "Тип изменения, необязательная область и краткое действие.",
+            "Сначала область изменения, затем краткое действие.",
+            "Область в квадратных скобках перед действием.",
+            "Только краткий заголовок без типа и области."
+          ],
+          "default": "auto",
+          "description": "Формат сообщения. Auto определяет его по последним 30 коммитам репозитория; если история короткая или смешанная, используется Conventional Commits."
+        },
+        "gitCommitAssistant.language": {
+          "type": "string",
+          "title": "Язык сообщения",
+          "enum": ["ru", "en"],
+          "enumItemLabels": ["Русский", "Английский"],
+          "default": "en",
+          "description": "Язык текста предложенного сообщения."
+        },
+        "gitCommitAssistant.scopeMode": {
+          "type": "string",
+          "title": "Область изменения",
+          "enum": ["auto", "none"],
+          "enumItemLabels": ["Определять по путям файлов", "Не добавлять область"],
+          "default": "auto",
+          "description": "Добавлять ли область изменения, определённую по путям файлов."
+        },
+        "gitCommitAssistant.defaultCodeType": {
+          "type": "string",
+          "title": "Тип для неоднозначных изменений кода",
+          "enum": ["chore", "feat", "fix", "refactor"],
+          "enumItemLabels": [
+            "Нейтральное изменение — chore",
+            "Новая возможность — feat",
+            "Исправление ошибки — fix",
+            "Рефакторинг — refactor"
+          ],
+          "enumDescriptions": [
+            "Когда по изменениям нельзя уверенно определить их смысл.",
+            "Когда добавлено новое поведение.",
+            "Когда исправлена ошибка в поведении.",
+            "Когда структура кода улучшена без изменения поведения."
+          ],
+          "default": "chore",
+          "description": "Тип Conventional Commit для изменений исходного кода, смысл которых нельзя определить локальными правилами."
+        },
+        "gitCommitAssistant.maxSubjectLength": {
+          "type": "integer",
+          "title": "Максимальная длина заголовка",
+          "minimum": 30,
+          "maximum": 120,
+          "default": 72,
+          "description": "Максимальная длина предложенного заголовка до ручного редактирования."
+        },
+        "gitCommitAssistant.statisticsEnabled": {
+          "type": "boolean",
+          "title": "Собирать статистику применений",
+          "default": true,
+          "description": "Сохранять агрегированную статистику применения предложений в текущем рабочем пространстве."
+        },
+        "gitCommitAssistant.statisticsDays": {
+          "type": "integer",
+          "title": "Период статистики",
+          "enum": [7, 14, 30, 90],
+          "enumItemLabels": ["7 дней", "14 дней", "30 дней", "90 дней"],
+          "default": 14,
+          "description": "Период графика применённых предложений в днях."
+        },
+        "gitCommitAssistant.showStatisticsAfterSuggestion": {
+          "type": "boolean",
+          "title": "Открывать статистику после применения",
+          "default": false,
+          "description": "Показывать панель статистики после вставки сообщения."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "check-types": "tsc --noEmit",
+    "vscode:prepublish": "npm run check-types && npm run compile",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.5.0"
+  }
+}
