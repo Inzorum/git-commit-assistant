@@ -45,3 +45,28 @@
 | `Git Commit Assistant: Показать статистику` | Панель с текущими изменениями и историей применений |
 | `Git Commit Assistant: Открыть настройки` | Все параметры расширения в Settings |
 
+## Настройки
+
+| Параметр | Значения | По умолчанию |
+| --- | --- | --- |
+| `gitCommitAssistant.commitMode` | `terminalAuto`, `terminalManual`, `scm` | `terminalAuto` |
+| `gitCommitAssistant.analyzeDiff` | `true`, `false` | `true` |
+| `gitCommitAssistant.format` | `auto`, `conventional`, `scope`, `bracket`, `plain` | `auto` |
+| `gitCommitAssistant.language` | `ru`, `en` | `en` |
+| `gitCommitAssistant.scopeMode` | `auto`, `none` | `auto` |
+| `gitCommitAssistant.defaultCodeType` | `chore`, `feat`, `fix`, `refactor` | `chore` |
+| `gitCommitAssistant.maxSubjectLength` | 30–120 символов | 72 |
+| `gitCommitAssistant.statisticsEnabled` | `true`, `false` | `true` |
+| `gitCommitAssistant.statisticsDays` | 7, 14, 30, 90 дней | 14 |
+| `gitCommitAssistant.showStatisticsAfterSuggestion` | `true`, `false` | `false` |
+
+Настройки можно менять для всех проектов или отдельно для рабочего пространства в **Settings → Extensions → Git Commit Assistant**.
+
+В интерфейсе VS Code варианты названы по-русски; технические значения из таблицы используются только в `settings.json`.
+
+В режиме `terminalAuto` после подтверждения сообщения открывается терминал в выбранном репозитории и запускается `git commit`. В режиме `terminalManual` команда появляется в терминале без запуска: проверьте её и нажмите Enter. В режиме `scm` сообщение попадает в поле Source Control, а коммит выполняется обычной кнопкой VS Code.
+
+## Как устроена статистика
+
+При открытии панели плагин заново читает подготовленные изменения выбранного репозитория. Число добавленных и удалённых строк определяется командой `git diff --cached --numstat`; строки в бинарных файлах не подсчитываются. После передачи сообщения в терминал или поле Git сохраняется небольшая запись: дата, репозиторий, выбранный тип, количество файлов и строк. История хранится в `workspaceState` VS Code и ограничена 500 записями. Содержимое файлов и текст сообщений не сохраняются.
+
