@@ -90,3 +90,41 @@ function joinNames(names: string[], language: 'ru' | 'en'): string {
   const conjunction = language === 'ru' ? ' и ' : ' and ';
   return `${names.slice(0, -1).join(', ')}${names.length > 2 ? ',' : ''}${conjunction}${names.at(-1)}`;
 }
+
+function subject(changes: StagedChange[], category: FileCategory, scope: string | undefined,
+  type: CommitType, language: 'ru' | 'en', hints: DiffHints): string {
+  const changeAction = action(changes);
+  const codeFiles = changes.filter(change => change.category === 'code');
+  if (category === 'code' && type === 'feat' && hints.addedFunctions?.length && codeFiles.length === 1) {
+    const file = displayFile(codeFiles[0].path, category);
+    const names = joinNames(hints.addedFunctions, language);
+    return language === 'ru' ? `добавить ${hints.addedFunctions.length === 1 ? 'функцию' : 'функции'} ${names} в ${file}`
+      : `add ${names} ${hints.addedFunctions.length === 1 ? 'function' : 'functions'} to ${file}`;
+  }
+  if (category === 'code' && changeAction === 'update') {
+    const location = hints.functionName ? (language === 'ru' ? ` в ${hints.functionName}` : ` in ${hints.functionName}`) : '';
+    if (type === 'refactor' && hints.intent === 'named-constant') {
+      return language === 'ru' ? `заменить магическое число именованной константой${location}`
+        : `replace magic number with named constant${location}`;
+    }
+    if (type === 'refactor' && hints.intent === 'rename-variables') {
+      return language === 'ru' ? `переименовать переменные${location}` : `rename variables${location}`;
+    }
+  }
+  const name = category === 'code' && hints.functionName && changeAction === 'update'
+    ? hints.functionName : topic(changes, category, scope, language);
+  if (changeAction === 'rename' && changes.length === 1 && changes[0].previousPath) {
+    const before = displayFile(changes[0].previousPath, category);
+    return language === 'ru' ? `переименовать ${before} в ${name}` : `rename ${before} to ${name}`;
+  }
+  if (changeAction === 'update' && category === 'code') {
+    const verbs = language === 'ru'
+      ? { feat: 'расширить', fix: 'исправить', refactor: 'переработать', chore: 'обновить' }
+      : { feat: 'extend', fix: 'fix', refactor: 'refactor', chore: 'update' };
+    if (type in verbs) { return `${verbs[type as keyof typeof verbs]} ${name}`; }
+  }
+  const verbs = language === 'ru'
+    ? { add: 'добавить', remove: 'удалить', rename: 'переименовать', update: 'обновить' }
+    : { add: 'add', remove: 'remove', rename: 'rename', update: 'update' };
+  return `${verbs[changeAction]} ${name}`;
+}
