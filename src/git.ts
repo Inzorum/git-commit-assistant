@@ -104,3 +104,38 @@ export async function selectRepository(): Promise<string | undefined> {
   );
   return picked?.root;
 }
+
+export async function readStagedChanges(root: string): Promise<RepositorySnapshot> {
+  const [names, counts] = await Promise.all([
+    runGit(root, ['diff', '--cached', '--name-status', '-z', '--find-renames']),
+    runGit(root, ['diff', '--cached', '--numstat', '-z', '--find-renames'])
+  ]);
+  const changes = parseNameStatus(names);
+  attachNumstat(changes, counts);
+  return { root, changes };
+}
+
+export async function readRecentCommitSubjects(root: string): Promise<string[]> {
+  try {
+    const output = await runGit(root, ['log', '-30', '--format=%s']);
+    return output.split('\n').map(subject => subject.trim()).filter(Boolean);
+  } catch {
+    // New repositories have no commits yet.
+    return [];
+  }
+}
+
+export async function readStagedCodeDiff(root: string, changes: StagedChange[]): Promise<string> {
+  const paths = changes.filter(change => change.category === 'code' && !change.binary)
+    .slice(0, 20).map(change => change.path);
+  if (!paths.length) { return ''; }
+  try {
+    return await runGit(root, [
+      'diff', '--cached', '--unified=0', '--no-ext-diff', '--no-textconv', '--no-color',
+      '--find-renames', '--', ...paths
+    ]);
+  } catch {
+    // A large or unusual diff must not prevent a path-based suggestion.
+    return '';
+  }
+}
