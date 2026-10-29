@@ -128,3 +128,34 @@ function subject(changes: StagedChange[], category: FileCategory, scope: string 
     : { add: 'add', remove: 'remove', rename: 'rename', update: 'update' };
   return `${verbs[changeAction]} ${name}`;
 }
+
+function shorten(value: string, limit: number): string {
+  if (value.length <= limit) { return value; }
+  const prefix = value.slice(0, limit);
+  const wordBoundary = prefix.lastIndexOf(' ');
+  return prefix.slice(0, wordBoundary > limit / 2 ? wordBoundary : limit).trimEnd();
+}
+
+function capitalize(value: string): string {
+  return `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+export function detectCommitFormat(subjects: string[]): ResolvedFormat {
+  const counts: Record<ResolvedFormat, number> = { conventional: 0, scope: 0, bracket: 0, plain: 0 };
+  for (const subject of subjects) {
+    if (/^(Merge |Revert |release:|\d{4}-\d\d-\d\d, Version )/i.test(subject)) { continue; }
+    if (/^(feat|fix|docs?|test|refactor|chore|build|ci|perf|style|release)(\([^)]+\))?:\s/i.test(subject)) {
+      counts.conventional++;
+    } else if (/^\[[^\]]+\]\s+\S/.test(subject)) {
+      counts.bracket++;
+    } else if (/^[\w][\w ./-]{0,30}:\s+\S/.test(subject)) {
+      counts.scope++;
+    } else if (subject.trim()) {
+      counts.plain++;
+    }
+  }
+  const ranked = (Object.keys(counts) as ResolvedFormat[]).sort((left, right) => counts[right] - counts[left]);
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  return total >= 3 && counts[ranked[0]] > counts[ranked[1]] && counts[ranked[0]] / total >= 0.4
+    ? ranked[0] : 'conventional';
+}
