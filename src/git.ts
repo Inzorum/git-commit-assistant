@@ -139,3 +139,39 @@ export async function readStagedCodeDiff(root: string, changes: StagedChange[]):
     return '';
   }
 }
+
+interface GitRepositoryApi {
+  rootUri: vscode.Uri;
+  inputBox: { value: string };
+}
+
+interface GitExtensionApi {
+  getAPI(version: number): { repositories: GitRepositoryApi[] };
+}
+
+export async function putMessageIntoScm(root: string, message: string): Promise<boolean> {
+  const extension = vscode.extensions.getExtension<GitExtensionApi>('vscode.git');
+  if (extension) {
+    try {
+      const api = extension.isActive ? extension.exports : await extension.activate();
+      const normalizedRoot = path.normalize(root);
+      const repository = api.getAPI(1).repositories.find(repo => {
+        const candidate = path.normalize(repo.rootUri.fsPath);
+        return process.platform === 'win32'
+          ? candidate.toLowerCase() === normalizedRoot.toLowerCase()
+          : candidate === normalizedRoot;
+      });
+      if (repository) {
+        repository.inputBox.value = message;
+        await vscode.commands.executeCommand('workbench.view.scm');
+        return true;
+      }
+    } catch {
+      // Older or disabled Git integrations may not provide the extension API.
+    }
+  }
+
+  await vscode.env.clipboard.writeText(message);
+  vscode.window.showInformationMessage('Поле Git не найдено. Сообщение скопировано в буфер обмена.');
+  return false;
+}
