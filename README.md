@@ -7,9 +7,9 @@
 Нужны VS Code 1.100 или новее и Git. Node.js и npm для установки не требуются.
 
 1. Откройте [страницу репозитория Inzorum/git-commit-assistant](https://github.com/Inzorum/git-commit-assistant) на GitHub.
-2. В списке файлов нажмите [git-commit-assistant-0.4.4.vsix](https://github.com/Inzorum/git-commit-assistant/blob/main/git-commit-assistant-0.4.4.vsix), затем на странице файла нажмите **Download raw file** (значок скачивания). Сохраните именно файл `.vsix`; архив из меню **Code → Download ZIP** для установки не нужен.
+2. В списке файлов нажмите [git-commit-assistant-0.4.5.vsix](https://github.com/Inzorum/git-commit-assistant/blob/main/git-commit-assistant-0.4.5.vsix), затем на странице файла нажмите **Download raw file** (значок скачивания). Сохраните именно файл `.vsix`; архив из меню **Code → Download ZIP** для установки не нужен.
 3. Откройте VS Code и нажмите **Ctrl+Shift+P**.
-4. Выберите **Extensions: Install from VSIX...** и укажите скачанный `git-commit-assistant-0.4.4.vsix`.
+4. Выберите **Extensions: Install from VSIX...** и укажите скачанный `git-commit-assistant-0.4.5.vsix`.
 5. Откройте папку Git-репозитория и пользуйтесь командами расширения. Если проект находится в WSL, устанавливайте расширение из окна VS Code, подключённого к WSL.
 
 ## Как пользоваться

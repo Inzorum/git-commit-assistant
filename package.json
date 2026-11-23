@@ -2,7 +2,7 @@
   "name": "git-commit-assistant",
   "displayName": "Git Commit Assistant",
   "description": "Локальные предложения сообщений коммита и статистика подготовленных изменений",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "inzorum",
   "private": true,
   "license": "MIT",

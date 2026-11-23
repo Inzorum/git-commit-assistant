@@ -35,10 +35,13 @@ function singleIdentifierRename(before: string, after: string): string | undefin
   const tokensAfter = after.match(/[A-Za-z_][A-Za-z_0-9]*|\d+(?:\.\d+)?|\S/g) ?? [];
   if (tokensBefore.length !== tokensAfter.length) { return undefined; }
   const changed = tokensBefore.flatMap((token, index) => token === tokensAfter[index] ? [] : [index]);
-  if (changed.length !== 1) { return undefined; }
+  if (!changed.length) { return undefined; }
   const index = changed[0];
   const oldName = tokensBefore[index];
   const newName = tokensAfter[index];
+  if (!changed.every(i => tokensBefore[i] === oldName && tokensAfter[i] === newName)) {
+    return undefined;
+  }
   return IDENTIFIER.test(oldName) && IDENTIFIER.test(newName) &&
     !KEYWORDS.has(oldName) && !KEYWORDS.has(newName) ? `${oldName}\0${newName}` : undefined;
 }
