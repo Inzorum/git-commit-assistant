@@ -1,7 +1,6 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { putMessageIntoScm, readRecentCommitSubjects, readStagedChanges, readStagedCodeDiff, selectRepository } from './git';
-import { analyzeStagedDiff } from './diff';
+import { putMessageIntoScm, readRecentCommitSubjects, readStagedChanges, readStagedCodeHints, selectRepository } from './git';
 import { StatisticsStore } from './statistics';
 import { buildSuggestions } from './suggestions';
 import { sendCommitToTerminal } from './terminal';
@@ -41,11 +40,11 @@ export function activate(context: vscode.ExtensionContext): void {
       }
 
       const settings = getSettings(root);
-      const [history, diff] = await Promise.all([
+      const [history, hints] = await Promise.all([
         settings.format === 'auto' ? readRecentCommitSubjects(root) : Promise.resolve([]),
-        settings.analyzeDiff ? readStagedCodeDiff(root, snapshot.changes) : Promise.resolve('')
+        settings.analyzeDiff ? readStagedCodeHints(root, snapshot.changes) : Promise.resolve(undefined)
       ]);
-      const suggestions = buildSuggestions(snapshot.changes, settings, history, analyzeStagedDiff(diff));
+      const suggestions = buildSuggestions(snapshot.changes, settings, history, hints);
       const picked = await vscode.window.showQuickPick(suggestions, {
         placeHolder: `Выберите предложение для ${snapshot.changes.length} подготовленных файлов`
       });

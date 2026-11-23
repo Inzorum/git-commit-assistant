@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { analyzeStagedDiff } from './diff';
 import { categorizePath } from './suggestions';
-import type { ChangeStatus, RepositorySnapshot, StagedChange } from './types';
+import type { ChangeStatus, DiffHints, RepositorySnapshot, StagedChange } from './types';
 
 function runGit(folder: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -125,19 +126,20 @@ export async function readRecentCommitSubjects(root: string): Promise<string[]> 
   }
 }
 
-export async function readStagedCodeDiff(root: string, changes: StagedChange[]): Promise<string> {
-  const paths = changes.filter(change => change.category === 'code' && !change.binary)
-    .slice(0, 20).map(change => change.path);
-  if (!paths.length) { return ''; }
-  try {
-    return await runGit(root, [
-      'diff', '--cached', '--unified=0', '--no-ext-diff', '--no-textconv', '--no-color',
-      '--find-renames', '--', ...paths
-    ]);
-  } catch {
-    // A large or unusual diff must not prevent a path-based suggestion.
-    return '';
+export async function readStagedCodeHints(root: string, changes: StagedChange[]): Promise<Map<string, DiffHints[]>> {
+  const hints = new Map<string, DiffHints[]>();
+  const files = changes.filter(change => change.category === 'code' && !change.binary &&
+    (change.status === 'modified' || change.status === 'added')).slice(0, 20);
+  for (const file of files) {
+    try {
+      const diff = await runGit(root, ['--literal-pathspecs', 'diff', '--cached', '--unified=0',
+        '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--', file.path]);
+      hints.set(file.path, analyzeStagedDiff(diff));
+    } catch {
+      // Keep path-based suggestions for files whose patch cannot be read.
+    }
   }
+  return hints;
 }
 
 interface GitRepositoryApi {

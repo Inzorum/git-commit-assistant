@@ -35,6 +35,7 @@ export interface AssistantSettings {
 export interface DiffHints {
   intent?: 'named-constant' | 'rename-variables';
   functionName?: string;
+  parameter?: boolean;
   addedFunctions?: string[];
 }
 

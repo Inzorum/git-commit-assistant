@@ -2,6 +2,7 @@
 .git/**
 .gitignore
 src/**
+tests/**
 node_modules/**
 *.vsix
 esbuild.mjs

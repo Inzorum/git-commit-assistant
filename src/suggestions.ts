@@ -36,21 +36,16 @@ function inferScope(changes: StagedChange[]): string | undefined {
     ? scopes[0] : undefined;
 }
 
-function mainCategory(changes: StagedChange[]): FileCategory {
-  for (const category of ['code', 'tests', 'docs', 'config', 'other'] as const) {
-    if (changes.some(change => change.category === category)) { return category; }
-  }
-  return 'other';
-}
-
 type ChangeAction = 'add' | 'remove' | 'rename' | 'update';
 type ResolvedFormat = Exclude<CommitFormat, 'auto'>;
 
-function action(changes: StagedChange[]): ChangeAction {
-  if (changes.every(change => change.status === 'added')) { return 'add'; }
-  if (changes.every(change => change.status === 'deleted')) { return 'remove'; }
-  if (changes.every(change => change.status === 'renamed')) { return 'rename'; }
-  return 'update';
+function action(change: StagedChange): ChangeAction {
+  switch (change.status) {
+    case 'added': return 'add';
+    case 'deleted': return 'remove';
+    case 'renamed': return 'rename';
+    default: return 'update';
+  }
 }
 
 function displayFile(filePath: string, category: FileCategory): string {
@@ -62,42 +57,26 @@ function displayFile(filePath: string, category: FileCategory): string {
   return base.replace(/\.(test|spec)(?=\.[^.]+$)/, '').replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
 }
 
-function topic(changes: StagedChange[], category: FileCategory, scope: string | undefined, language: 'ru' | 'en'): string {
-  const relevant = changes.filter(change => change.category === category);
-  if (relevant.length === 1) {
-    const name = displayFile(relevant[0].path, category);
-    if (category === 'tests') { return language === 'ru' ? `тесты ${name}` : `${name} tests`; }
-    return name;
-  }
-  if (category === 'code' && scope) { return language === 'ru' ? `модуль ${scope}` : `${scope} module`; }
-  if (category === 'code' && relevant.length === 2) {
-    const names = relevant.map(change => displayFile(change.path, category));
-    return names[0] === names[1] ? names[0]
-      : `${names[0]}${language === 'ru' ? ' и ' : ' and '}${names[1]}`;
-  }
-  if (category === 'code' && relevant.length > 2) {
-    return language === 'ru' ? `${relevant.length} исходных файла` : `${relevant.length} source files`;
-  }
-  const fallback = {
-    ru: { code: 'исходный код', docs: 'документацию', tests: 'тесты', config: 'конфигурацию', other: 'файлы проекта' },
-    en: { code: 'source code', docs: 'documentation', tests: 'tests', config: 'configuration', other: 'project files' }
-  };
-  return fallback[language][category];
-}
-
 function joinNames(names: string[], language: 'ru' | 'en'): string {
-  if (names.length === 1) { return names[0]; }
-  const conjunction = language === 'ru' ? ' и ' : ' and ';
-  return `${names.slice(0, -1).join(', ')}${names.length > 2 ? ',' : ''}${conjunction}${names.at(-1)}`;
+  return new Intl.ListFormat(language).format(names);
 }
 
-function subject(changes: StagedChange[], category: FileCategory, scope: string | undefined,
-  type: CommitType, language: 'ru' | 'en', hints: DiffHints): string {
-  const changeAction = action(changes);
-  const codeFiles = changes.filter(change => change.category === 'code');
-  if (category === 'code' && type === 'feat' && hints.addedFunctions?.length && codeFiles.length === 1) {
-    const file = displayFile(codeFiles[0].path, category);
-    const names = joinNames(hints.addedFunctions, language);
+function functionList(names: string[], lang: 'en' | 'ru'): string {
+  if (names.length <= 3) { return joinNames(names, lang); }
+  if (lang === 'en') { return `${names.length} functions`; }
+  const form = new Intl.PluralRules('ru').select(names.length);
+  return `${names.length} ${form === 'one' ? 'функцию' : form === 'few' ? 'функции' : 'функций'}`;
+}
+
+function subject(change: StagedChange, type: CommitType, language: 'ru' | 'en', hints: DiffHints): string {
+  const changeAction = action(change);
+  const category = change.category;
+  const file = displayFile(change.path, category);
+  if (category === 'code' && type === 'feat' && hints.addedFunctions?.length) {
+    const names = functionList(hints.addedFunctions, language);
+    if (hints.addedFunctions.length > 3) {
+      return language === 'ru' ? `добавить ${names} в ${file}` : `add ${names} to ${file}`;
+    }
     return language === 'ru' ? `добавить ${hints.addedFunctions.length === 1 ? 'функцию' : 'функции'} ${names} в ${file}`
       : `add ${names} ${hints.addedFunctions.length === 1 ? 'function' : 'functions'} to ${file}`;
   }
@@ -108,13 +87,15 @@ function subject(changes: StagedChange[], category: FileCategory, scope: string 
         : `replace magic number with named constant${location}`;
     }
     if (type === 'refactor' && hints.intent === 'rename-variables') {
+      if (hints.parameter) { return language === 'ru' ? `переименовать параметр${location}` : `rename parameter${location}`; }
       return language === 'ru' ? `переименовать переменные${location}` : `rename variables${location}`;
     }
   }
+  const topic = category === 'tests' ? (language === 'ru' ? `тесты ${file}` : `${file} tests`) : file;
   const name = category === 'code' && hints.functionName && changeAction === 'update'
-    ? hints.functionName : topic(changes, category, scope, language);
-  if (changeAction === 'rename' && changes.length === 1 && changes[0].previousPath) {
-    const before = displayFile(changes[0].previousPath, category);
+    ? hints.functionName : topic;
+  if (changeAction === 'rename' && change.previousPath) {
+    const before = displayFile(change.previousPath, category);
     return language === 'ru' ? `переименовать ${before} в ${name}` : `rename ${before} to ${name}`;
   }
   if (changeAction === 'update' && category === 'code') {
@@ -179,36 +160,36 @@ function makeMessage(type: CommitType, body: string, scope: string | undefined,
   return shorten(value, settings.maxSubjectLength);
 }
 
-export function buildSuggestions(changes: StagedChange[], settings: AssistantSettings,
-  recentSubjects: string[] = [], hints: DiffHints = {}): MessageSuggestion[] {
-  if (!changes.length) { return []; }
-  const category = mainCategory(changes);
-  const scope = inferScope(changes);
-  const format = settings.format === 'auto' ? detectCommitFormat(recentSubjects) : settings.format;
+function fileSuggestions(change: StagedChange, settings: AssistantSettings,
+  format: ResolvedFormat, hints: DiffHints): MessageSuggestion[] {
+  const category = change.category;
+  const scope = inferScope([change]);
 
   const primary: CommitType = category === 'docs' ? 'docs'
     : category === 'tests' ? 'test'
-      : category === 'code' && action(changes) === 'add' ? 'feat'
-      : category === 'code' && hints.addedFunctions?.length && changes.filter(change => change.category === 'code').length === 1 ? 'feat'
+      : category === 'code' && action(change) === 'add' ? 'feat'
+      : category === 'code' && hints.addedFunctions?.length ? 'feat'
         : category === 'code' && hints.intent ? 'refactor'
           : category === 'code' ? settings.defaultCodeType : 'chore';
-  const types: CommitType[] = category === 'code' && action(changes) === 'update'
+  const types: CommitType[] = category === 'code' && action(change) === 'update'
     ? [...new Set<CommitType>([primary, 'feat', 'fix', 'refactor', 'chore'])]
     : [primary];
 
   const suggestions = types.map(type => {
-    let body = subject(changes, category, scope, type, settings.language, hints);
+    let body = subject(change, type, settings.language, hints);
     if (type === 'feat' && hints.addedFunctions?.length) {
       const fullMessage = makeMessage(type, body, scope, category,
         { ...settings, maxSubjectLength: Number.MAX_SAFE_INTEGER }, format);
       if (fullMessage.length > settings.maxSubjectLength) {
-        const names = joinNames(hints.addedFunctions, settings.language);
-        const compact = settings.language === 'ru'
-          ? `добавить функции ${names}` : `add ${names} functions`;
+        const names = functionList(hints.addedFunctions, settings.language);
+        const plural = hints.addedFunctions.length > 1;
+        const compact = hints.addedFunctions.length > 3 ? (settings.language === 'ru' ? 'добавить ' : 'add ') + names
+          : settings.language === 'ru' ? `добавить ${plural ? 'функции' : 'функцию'} ${names}`
+          : `add ${names} ${plural ? 'functions' : 'function'}`;
         const compactMessage = makeMessage(type, compact, scope, category,
           { ...settings, maxSubjectLength: Number.MAX_SAFE_INTEGER }, format);
         body = compactMessage.length <= settings.maxSubjectLength ? compact
-          : subject(changes, category, scope, type, settings.language,
+          : subject(change, type, settings.language,
             { ...hints, addedFunctions: undefined });
       }
     }
@@ -234,4 +215,56 @@ export function buildSuggestions(changes: StagedChange[], settings: AssistantSet
   });
   return suggestions.filter((suggestion, index) =>
     suggestions.findIndex(candidate => candidate.message === suggestion.message) === index);
+}
+
+interface ChangePart {
+  change: StagedChange;
+  body: string;
+  choices: MessageSuggestion[];
+}
+
+export function buildSuggestions(changes: StagedChange[], settings: AssistantSettings,
+  recentSubjects: string[] = [], byFile: ReadonlyMap<string, DiffHints[]> = new Map()): MessageSuggestion[] {
+  if (!changes.length) { return []; }
+  const format = settings.format === 'auto' ? detectCommitFormat(recentSubjects) : settings.format;
+  const lang = settings.language;
+  const parts: ChangePart[] = [];
+  for (const change of changes) {
+    const facts = byFile.get(change.path);
+    for (const hint of facts?.length ? facts : [{}]) {
+      const choices = fileSuggestions(change, settings, format, hint);
+      const body = hint.addedFunctions?.length
+        ? (lang === 'ru' ? 'добавить ' : 'add ') + functionList(hint.addedFunctions, lang)
+        : subject(change, choices[0].type, lang, hint);
+      parts.push({ change, body, choices });
+    }
+  }
+  if (parts.length === 1) { return parts[0].choices; }
+
+  const categories: FileCategory[] = ['code', 'tests', 'docs', 'config', 'other'];
+  parts.sort((a, b) => categories.indexOf(a.change.category) - categories.indexOf(b.change.category));
+  const category = parts[0].change.category;
+  const type = parts.some(part => part.choices[0].type === 'feat') ? 'feat' : parts[0].choices[0].type;
+  const scope = inferScope(changes);
+  const unbounded = { ...settings, maxSubjectLength: Infinity };
+  const title = (body: string) => makeMessage(type, body, scope, category, unbounded, format);
+  const frequency = new Map<string, number>();
+  for (const { body } of parts) { frequency.set(body, (frequency.get(body) ?? 0) + 1); }
+  const clauses = parts.map(({ body, change }) =>
+    frequency.get(body) === 1 ? body : `${body} (${change.path})`);
+  const categoryLabels = lang === 'ru'
+    ? { code: 'код', tests: 'тесты', docs: 'документацию', config: 'настройки', other: 'файлы проекта' }
+    : { code: 'code', tests: 'tests', docs: 'docs', config: 'configuration', other: 'project files' };
+  const update = lang === 'ru' ? 'обновить ' : 'update ';
+  const labels = [...new Set(parts.map(part => categoryLabels[part.change.category]))];
+  const summaries = [joinNames(clauses, lang), clauses.join(', '), update + joinNames(labels, lang)];
+  const fallback = lang === 'ru' ? 'обновить проект' : 'update project';
+  const message = summaries.map(title).find(value => value.length <= settings.maxSubjectLength)
+    ?? makeMessage(type, fallback, undefined, category, settings, format);
+  const overview = { type, message, label: message,
+    description: lang === 'ru' ? 'Все подготовленные изменения' : 'All staged changes' };
+  const focused = parts.map(part => ({
+    ...part.choices[0], description: part.change.path
+  }));
+  return [overview, ...focused];
 }

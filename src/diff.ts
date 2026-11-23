@@ -27,7 +27,7 @@ function functionFromHeader(line: string): string | undefined {
   const context = line.slice(line.indexOf('@@', 2) + 2);
   const names = [...context.matchAll(/([A-Za-z_][A-Za-z_0-9]*)\s*\(/g)]
     .map(match => match[1]).filter(name => !KEYWORDS.has(name));
-  return names[0];
+  return declaredFunction(context) ?? names[0];
 }
 
 function singleIdentifierRename(before: string, after: string): string | undefined {
@@ -46,67 +46,115 @@ function singleIdentifierRename(before: string, after: string): string | undefin
     !KEYWORDS.has(oldName) && !KEYWORDS.has(newName) ? `${oldName}\0${newName}` : undefined;
 }
 
-export function analyzeStagedDiff(diff: string): DiffHints {
-  if (!diff) { return {}; }
-  const functions = new Set<string>();
-  const removed: string[] = [];
-  const added: string[] = [];
-  const hunks: { removed: string[]; added: string[] }[] = [];
-  let hunk: { removed: string[]; added: string[] } | undefined;
+interface ChangedLines {
+  removed: string[];
+  added: string[];
+}
 
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('@@ ')) {
-      const name = functionFromHeader(line);
-      if (name) { functions.add(name); }
-      hunk = { removed: [], added: [] };
-      hunks.push(hunk);
-    } else if (hunk && line.startsWith('diff --git ')) {
-      hunk = undefined;
-    } else if (hunk && line.startsWith('-') && !line.startsWith('---')) {
-      hunk.removed.push(line.slice(1));
-      removed.push(line.slice(1));
-    } else if (hunk && line.startsWith('+') && !line.startsWith('+++')) {
-      hunk.added.push(line.slice(1));
-      added.push(line.slice(1));
-    }
-  }
-
-  const functionName = functions.size === 1 ? [...functions][0] : undefined;
-  const oldDeclarations = new Set(removed.map(declaredFunction).filter((name): name is string => !!name));
-  const newDeclarations = new Set(added.map(declaredFunction).filter((name): name is string => !!name));
-  const addedFunctions = [...newDeclarations].filter(name => !oldDeclarations.has(name));
-  const detectedFunctions = addedFunctions.length >= 1 && addedFunctions.length <= 3 &&
-    addedFunctions.length === newDeclarations.size && oldDeclarations.size === 0
-    ? addedFunctions : undefined;
-  const addedText = added.join('\n');
-  const removedText = removed.join('\n');
-  for (const line of added) {
-    const match = /^\s*(?:(?:export|static|inline)\s+)*(?:const|constexpr)\s+(?:[\w:<>,*&]+\s+)?([A-Za-z_][A-Za-z_0-9]*)\s*=\s*(\d+(?:\.\d+)?)(?:\s*;|\s*$)/.exec(line);
-    if (!match) { continue; }
-    const [, name, literal] = match;
+function findRefactors(blocks: ChangedLines[], functionName: string | undefined,
+  constants: Map<string, string>): DiffHints[] {
+  const hints: DiffHints[] = [];
+  const addedText = blocks.flatMap(block => block.added).join('\n');
+  const removedText = blocks.flatMap(block => block.removed).join('\n');
+  for (const [name, literal] of constants) {
     const escapedLiteral = literal.replaceAll('.', '\\.');
     const oldUses = removedText.match(new RegExp(`(^|[^\\w.])${escapedLiteral}(?![\\w.])`, 'gm'))?.length ?? 0;
     const newUses = addedText.match(new RegExp(`\\b${name}\\b`, 'g'))?.length ?? 0;
-    if (oldUses >= 2 && newUses >= 2) { return { intent: 'named-constant', functionName, addedFunctions: detectedFunctions }; }
+    if (oldUses >= 2 && newUses >= 2) {
+      hints.push({ intent: 'named-constant', functionName });
+      break;
+    }
   }
 
-  const renameCounts = new Map<string, { count: number; declaration: boolean }>();
-  for (const item of hunks) {
+  const renameCounts = new Map<string, { count: number; declaration: boolean; parameter: boolean }>();
+  for (const item of blocks) {
     for (const before of item.removed.slice(0, 20)) {
       for (const after of item.added.slice(0, 20)) {
         const rename = singleIdentifierRename(before, after);
         if (rename) {
-          const previous = renameCounts.get(rename) ?? { count: 0, declaration: false };
+          const previous = renameCounts.get(rename) ?? { count: 0, declaration: false, parameter: false };
+          const args = before.slice(before.indexOf('(') + 1, before.indexOf(')'));
+          const identifiers: string[] = args.match(/[A-Za-z_]\w*/g) ?? [];
+          const parameter = !!declaredFunction(before) && identifiers.includes(rename.split('\0')[0]);
           renameCounts.set(rename, {
+            parameter: previous.parameter || parameter,
             count: previous.count + 1,
-            declaration: previous.declaration || /\b(?:const|let|var|int|long|short|char|float|double|bool|boolean|auto|string)\b/.test(before)
+            declaration: previous.declaration || parameter || /\b(?:const|let|var|int|long|short|char|float|double|bool|boolean|auto|string)\b/.test(before)
           });
         }
       }
     }
   }
-  if ([...renameCounts.values()].some(value => value.count >= 2 && value.declaration)) {
-    return { intent: 'rename-variables', functionName, addedFunctions: detectedFunctions };
+  for (const evidence of renameCounts.values()) {
+    if (evidence.count >= 2 && evidence.declaration) {
+      hints.push({ intent: 'rename-variables', functionName, parameter: evidence.parameter });
+      break;
+    }
   }
-  return { functionName, addedFunctions: detectedFunctions };
+  return hints;
+}
+
+// The caller supplies one staged file at a time. Track the old and new sides
+// independently: one hunk may edit a signature and introduce another function.
+export function analyzeStagedDiff(diff: string): DiffHints[] {
+  const groups = new Map<string, ChangedLines[]>();
+  const constants = new Map<string, string>();
+  const declarations = { added: new Map<string, string>(), removed: new Map<string, string>() };
+  let locations: Record<'added' | 'removed', string> | undefined;
+  let blocks = new Map<string, ChangedLines>();
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('@@ ')) {
+      const name = functionFromHeader(line) ?? '';
+      locations = { added: name, removed: name };
+      blocks = new Map();
+      continue;
+    }
+    if (!locations || !(line.startsWith('+') || line.startsWith('-'))) { continue; }
+    const side = line[0] === '+' ? 'added' : 'removed';
+    const content = line.slice(1);
+    if (!content.trim()) { continue; }
+    if (side === 'added') {
+      const constant = /^\s*(?:(?:export|static|inline)\s+)*(?:const|constexpr)\s+(?:[\w:<>,*&]+\s+)?([A-Za-z_]\w*)\s*=\s*(\d+(?:\.\d+)?)(?:\s*;|\s*$)/.exec(content);
+      if (constant) { constants.set(constant[1], constant[2]); }
+    }
+    const name = declaredFunction(content);
+    if (name) {
+      locations[side] = name;
+      declarations[side].set(name, content.trim().replace(/\s+/g, ' '));
+    }
+    const location = locations[side];
+    let block = blocks.get(location);
+    if (!block) {
+      block = { added: [], removed: [] };
+      blocks.set(location, block);
+      if (!groups.has(location)) { groups.set(location, []); }
+      groups.get(location)!.push(block);
+    }
+    block[side].push(content);
+  }
+
+  const removedSignatures = new Set([...declarations.removed]
+    .filter(([name]) => !declarations.added.has(name))
+    .map(([name, line]) => signatureShape(line, name)));
+  const newNames = new Set([...declarations.added.keys()].filter(name => !declarations.removed.has(name)));
+  const addedFunctions = [...newNames].filter(name =>
+    !removedSignatures.has(signatureShape(declarations.added.get(name)!, name)));
+  const hints: DiffHints[] = [];
+  if (addedFunctions.length) { hints.push({ addedFunctions }); }
+  for (const [location, blocks] of groups) {
+    if (newNames.has(location)) { continue; }
+    const refactors = findRefactors(blocks, location || undefined, constants);
+    if (refactors.length) { hints.push(...refactors); }
+    else if (location && declarations.removed.has(location) && !declarations.added.has(location)) {
+      // A removed declaration does not identify a surviving function.
+      continue;
+    } else if (blocks.some(block => [...block.added, ...block.removed].some(line => /[\w]/.test(line)))) {
+      hints.push({ functionName: location || undefined });
+    }
+  }
+  return hints;
+}
+
+function signatureShape(line: string, name: string): string {
+  return line.replace(new RegExp(`\\b${name}(?=\\s*\\()`), '<function>');
 }
